@@ -1,10 +1,10 @@
 import logging
 import typing
 
-from zeep.proxy import ServiceProxy
+from zeep.proxy import ServiceProxy, AsyncServiceProxy
 from zeep.settings import Settings
 from zeep.transports import Transport
-from zeep.wsdl import Document
+from zeep.wsdl import Document, AsyncDocument
 
 logger = logging.getLogger(__name__)
 
@@ -35,25 +35,9 @@ class Factory:
         return self._method("{%s}%s" % (self._ns, key))
 
 
-class Client:
-    """The zeep Client.
-
-    :param wsdl:
-    :param wsse:
-    :param transport: Custom transport class.
-    :param service_name: The service name for the service binding. Defaults to
-                         the first service in the WSDL document.
-    :param port_name: The port name for the default binding. Defaults to the
-                      first port defined in the service element in the WSDL
-                      document.
-    :param plugins: a list of Plugin instances
-    :param settings: a zeep.Settings() object
-
-    """
-
+class BaseClient:
     def __init__(
         self,
-        wsdl,
         wsse=None,
         transport=None,
         service_name=None,
@@ -61,12 +45,8 @@ class Client:
         plugins=None,
         settings=None,
     ):
-        if not wsdl:
-            raise ValueError("No URL given for the wsdl")
-
         self.settings = settings or Settings()
         self.transport = transport if transport is not None else Transport()
-        self.wsdl = Document(wsdl, self.transport, settings=self.settings)
         self.wsse = wsse
         self.plugins = plugins if plugins is not None else []
 
@@ -208,6 +188,94 @@ class Client:
         else:
             service = next(iter(self.wsdl.services.values()), None)
         return service
+
+
+class Client(BaseClient):
+    """The zeep Client.
+
+    :param wsdl:
+    :param wsse:
+    :param transport: Custom transport class.
+    :param service_name: The service name for the service binding. Defaults to
+                         the first service in the WSDL document.
+    :param port_name: The port name for the default binding. Defaults to the
+                      first port defined in the service element in the WSDL
+                      document.
+    :param plugins: a list of Plugin instances
+    :param settings: a zeep.Settings() object
+
+    """
+
+    def __init__(
+        self,
+        wsdl,
+        wsse=None,
+        transport=None,
+        service_name=None,
+        port_name=None,
+        plugins=None,
+        settings=None,
+    ):
+        if not wsdl:
+            raise ValueError("No URL given for the wsdl")
+
+        super().__init__(wsse, transport, service_name, port_name, plugins, settings)
+        self.wsdl = Document(wsdl, self.transport, settings=self.settings)
+        self.wsdl.load(wsdl)
+
+
+class AsyncClient(BaseClient):
+
+    """The zeep Client.
+
+    :param wsse:
+    :param transport: Custom transport class.
+    :param service_name: The service name for the service binding. Defaults to
+                         the first service in the WSDL document.
+    :param port_name: The port name for the default binding. Defaults to the
+                      first port defined in the service element in the WSDL
+                      document.
+    :param plugins: a list of Plugin instances
+    :param settings: a zeep.Settings() object
+
+    """
+
+    def __init__(
+        self,
+        wsse=None,
+        transport=None,
+        service_name=None,
+        port_name=None,
+        plugins=None,
+        settings=None,
+    ):
+        super().__init__(wsse, transport, service_name, port_name, plugins, settings)
+
+    async def load_wsdl(self, url):
+        self.wsdl = AsyncDocument(url, self.transport, settings=self.settings)
+        await self.wsdl.load(url)
+
+    def bind(
+        self,
+        service_name: typing.Optional[str] = None,
+        port_name: typing.Optional[str] = None,
+    ):
+        """Create a new ServiceProxy for the given service_name and port_name.
+
+        The default ServiceProxy instance (`self.service`) always referes to
+        the first service/port in the wsdl Document.  Use this when a specific
+        port is required.
+
+        """
+        if not self.wsdl.services:
+            return
+
+        service = self._get_service(service_name)
+        port = self._get_port(service, port_name)
+        return AsyncServiceProxy(self, port.binding, **port.binding_options)
+
+    async def __aexit__(self, exc_type=None, exc_value=None, traceback=None) -> None:
+        await self.transport.close()
 
 
 class CachingClient(Client):

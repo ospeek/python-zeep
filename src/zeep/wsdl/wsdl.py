@@ -15,7 +15,7 @@ from collections import OrderedDict
 from lxml import etree
 
 from zeep.exceptions import IncompleteMessage
-from zeep.loader import absolute_location, is_relative_path, load_external
+from zeep.loader import absolute_location, is_relative_path, load_external, load_external_async
 from zeep.settings import Settings
 from zeep.utils import findall_multiple_ns
 from zeep.wsdl import parse
@@ -85,6 +85,7 @@ class Document:
             settings=self.settings,
         )
 
+    def load(self, location):
         document = self._get_xml_document(location)
 
         root_definitions = Definition(self, document, self.location)
@@ -152,6 +153,33 @@ class Document:
     def _add_definition(self, definition: "Definition"):
         key = (definition.target_namespace, definition.location)
         self._definitions[key] = definition
+
+
+class AsyncDocument(Document):
+    async def load(self, location):
+
+        document = await self._get_xml_document(location)
+
+        root_definitions = Definition(self, document, self.location)
+        root_definitions.resolve_imports()
+
+        # Make the wsdl definitions public
+        self.messages = root_definitions.messages
+        self.port_types = root_definitions.port_types
+        self.bindings = root_definitions.bindings
+        self.services = root_definitions.services
+
+    async def _get_xml_document(self, location: typing.IO) -> etree._Element:
+        """Load the XML content from the given location and return an
+        lxml.Element object.
+
+        :param location: The URL of the document to load
+        :type location: string
+
+        """
+        return await load_external_async(
+            location, self.transport, self.location, settings=self.settings
+        )
 
 
 class Definition:
@@ -246,7 +274,7 @@ class Definition:
         for service in self.services.values():
             service.resolve(self)
 
-    def parse_imports(self, doc):
+    async def parse_imports(self, doc):
         """Import other WSDL definitions in this document.
 
         Note that imports are non-transitive, so only import definitions
@@ -277,7 +305,7 @@ class Definition:
             if key in self.wsdl._definitions:
                 self.imports[key] = self.wsdl._definitions[key]
             else:
-                document = self.wsdl._get_xml_document(location)
+                document = await self.wsdl._get_xml_document(location)
                 if etree.QName(document.tag).localname == "schema":
                     self.types.add_documents([document], location)
                 else:
