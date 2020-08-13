@@ -236,7 +236,7 @@ def _signature_prepare(envelope, key, signature_method, digest_method):
 
     # Insert the Signature node in the wsse:Security header.
     security = get_security_header(envelope)
-    security.insert(0, signature)
+    security.appen(signature)  # append signature instead of inserting at 0 because CTIE expects it at the end
 
     # Perform the actual signing.
     ctx = xmlsec.SignatureContext()
@@ -285,7 +285,7 @@ def _sign_envelope_with_key_binary(envelope, key, signature_method, digest_metho
     )
     ref.attrib["URI"] = "#" + ensure_id(bintok)
     bintok.text = x509_data.find(QName(ns.DS, "X509Certificate")).text
-    security.insert(1, bintok)
+    security.insert(0, bintok)  # CTIE expects bintok at 0 instead of 1
     x509_data.getparent().remove(x509_data)
 
 
